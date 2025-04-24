@@ -1,5 +1,4 @@
 #include <fstream>
-#include <memory>
 #include <torch/nn/module.h>
 #include <torch/nn/modules/linear.h>
 #include <torch/serialize.h>
@@ -9,8 +8,10 @@
 
 int main(int argc, char **argv)
 {
+    const char *fileName = "test.pt";
+    std::cout << fileName << std::endl;
     torch::nn::Linear model(5, 1);
-    std::ifstream file("linear.pt");
+    std::ifstream file(fileName);
     torch::load(model, file);
     model->pretty_print(std::cout);
     return 0;

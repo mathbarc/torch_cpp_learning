@@ -1,11 +1,35 @@
 
+#include <ATen/core/TensorBody.h>
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <torch/csrc/jit/api/module.h>
+#include <torch/csrc/jit/frontend/tracer.h>
+#include <torch/csrc/jit/serialization/pickle.h>
+#include <torch/nn/modules/container/parameterdict.h>
+#include <torch/nn/modules/linear.h>
+#include <torch/script.h>
+#include <torch/serialize/output-archive.h>
 #include <torch/torch.h>
 #include <vector>
 
 #define POLY_DEGREE 4
+
+class LinearRegressor : public torch::nn::Module
+{
+
+  public:
+    torch::nn::Linear fc;
+    LinearRegressor(long poly_degree) : fc(torch::nn::LinearOptions(poly_degree, 1))
+    {
+        register_module("linear", this->fc);
+    }
+
+    torch::Tensor forward(torch::Tensor x)
+    {
+        return this->fc(x);
+    }
+};
 
 // Builds features i.e. a matrix with columns [x, x^2, x^3, x^4].
 torch::Tensor make_features(torch::Tensor x)
@@ -52,8 +76,8 @@ int main()
     auto b_target = torch::randn({1}) * 5;
 
     // Define the model and optimizer
-    auto fc = torch::nn::Linear(W_target.size(0), 1);
-    torch::optim::SGD optim(fc->parameters(), .1);
+    auto fc = LinearRegressor(POLY_DEGREE);
+    torch::optim::SGD optim(fc.parameters(), .1);
 
     float loss = 0;
     int64_t batch_idx = 0;
@@ -68,8 +92,9 @@ int main()
         optim.zero_grad();
 
         // Forward pass
-        auto output = torch::smooth_l1_loss(fc(batch_x), batch_y);
+        auto output = torch::smooth_l1_loss(fc.forward(batch_x), batch_y);
         loss = output.item<float>();
+        std::cout << loss << std::endl;
 
         // Backward pass
         output.backward();
@@ -83,11 +108,14 @@ int main()
     }
 
     std::cout << "Loss: " << loss << " after " << batch_idx << " batches" << std::endl;
-    std::cout << "==> Learned function:\t" << poly_desc(fc->weight.view({-1}), fc->bias) << std::endl;
+    std::cout << "==> Learned function:\t" << poly_desc(fc.fc->weight.view({-1}), fc.fc->bias) << std::endl;
     std::cout << "==> Actual function:\t" << poly_desc(W_target.view({-1}), b_target) << std::endl;
 
-    torch::save(fc, "linear.pt");
-    fc->pretty_print(std::cout);
+    torch::serialize::OutputArchive outFile;
+    fc.save(outFile);
+    outFile.save_to("linear.pt");
+
+    fc.pretty_print(std::cout);
 
     return 0;
 }
